@@ -1,2 +1,4 @@
 /.agent-shell/
 **/_apalache-out/*
+**/target/*
+Cargo.lock
