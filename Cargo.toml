@@ -15,3 +15,7 @@ path = "examples/HourClock/hourclock.rs"
 [[example]]
 name = "hanoi"
 path = "examples/Hanoi/hanoi.rs"
+
+[[example]]
+name = "simple_kv_cache"
+path = "examples/SimpleKVCache/simple_kv_cache.rs"
