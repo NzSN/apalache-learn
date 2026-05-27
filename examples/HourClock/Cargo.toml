@@ -1,9 +1,0 @@
-[package]
-name = "HourClock"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-tla-connect = "0.0.2"
-serde = { version = "1", features = ["derive"] }
-itf = "0.4"

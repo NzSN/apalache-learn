@@ -1,0 +1,17 @@
+[package]
+name = "apalache_learn"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tla-connect = "0.0.4"
+serde = { version = "1", features = ["derive"] }
+itf = "0.4"
+
+[[example]]
+name = "hourclock"
+path = "examples/HourClock/hourclock.rs"
+
+[[example]]
+name = "hanoi"
+path = "examples/Hanoi/hanoi.rs"
