@@ -79,7 +79,20 @@ BSTParent(n, r, key) ==
                  ELSE IF (key < n[c1].key /\ n[c1].left = nil)
                          \/ (key > n[c1].key /\ n[c1].right = nil)
                       THEN c1
-                      ELSE c1
+                       ELSE c1
+
+\* BST lookup for a key (unrolled, depth ≤ 3). Returns node ID or nil.
+\* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int, Int) => Int;
+BSTFind(n, r, key) ==
+    IF r = nil THEN nil
+    ELSE IF n[r].key = key THEN r
+    ELSE LET c == IF key < n[r].key THEN n[r].left ELSE n[r].right
+         IN IF c = nil THEN nil
+            ELSE IF n[c].key = key THEN c
+            ELSE LET c2 == IF key < n[c].key THEN n[c].left ELSE n[c].right
+                 IN IF c2 = nil THEN nil
+                    ELSE IF n[c2].key = key THEN c2
+                    ELSE nil
 
 \* Rotate left at x. Returns [n |-> Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r |-> Int].
 \* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int, Int) => { n: Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r: Int };
