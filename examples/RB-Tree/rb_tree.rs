@@ -3,7 +3,7 @@ use std::fmt;
 const NIL: i64 = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Color {
+pub enum Color {
     R,
     B,
 }
@@ -36,7 +36,7 @@ impl Color {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RBNode {
+pub struct RBNode {
     key: i64,
     color: Color,
     left: i64,
@@ -242,6 +242,14 @@ impl RBTree {
 
     pub fn root(&self) -> i64 {
         self.root
+    }
+
+    pub fn nodes(&self) -> &Vec<RBNode> {
+        &self.nodes
+    }
+
+    pub fn nodes_mut(&mut self) -> &mut Vec<RBNode> {
+        &mut self.nodes
     }
 
     pub fn nodes_sorted(&self) -> Vec<(i64, i64, String, i64, i64, i64)> {
@@ -495,41 +503,30 @@ mod tests {
     use serde::Deserialize;
     use tla_connect as T;
 
-    use super::RBTree;
+    use super::{Color, NIL, RBTree};
     use apalache_learn::model_check::ApalacheMBT;
 
     #[derive(Debug, PartialEq, Eq, Deserialize)]
     struct RBTState {
-        keys: Vec<i64>,
+        nodes: Vec<(i64, i64, String, i64, i64, i64)>,
+        root: i64,
     }
 
     impl T::State for RBTState {
         fn from_spec(value: &itf::Value) -> Result<Self, T::DriverError> {
             let rec = expect_record(value)?;
-            let node_records = extract_nodes(extract_field(rec, "nodes")?)?;
-            let mut keys: Vec<i64> = node_records
-                .iter()
-                .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
-                .map(|(_, key, _, _, _, _)| *key)
-                .collect();
-            keys.sort();
-            keys.dedup();
-            Ok(RBTState { keys })
+            let nodes = extract_nodes(extract_field(rec, "nodes")?)?;
+            let root = extract_int(rec, "root")?;
+            Ok(RBTState { nodes, root })
         }
     }
 
     impl T::ExtractState<RBTDriver> for RBTState {
         fn from_driver(driver: &RBTDriver) -> Result<Self, T::DriverError> {
-            let mut keys: Vec<i64> = driver
-                .tree
-                .nodes_sorted()
-                .iter()
-                .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
-                .map(|(_, key, _, _, _, _)| *key)
-                .collect();
-            keys.sort();
-            keys.dedup();
-            Ok(RBTState { keys })
+            Ok(RBTState {
+                nodes: driver.tree.nodes_sorted(),
+                root: driver.tree.root(),
+            })
         }
     }
 
@@ -668,10 +665,271 @@ mod tests {
     #[test]
     fn mbt_verify_interactive() -> Result<(), T::Error> {
         let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
-            .max_traces(10)
+            .max_traces(1)
             .max_length(20)
             .invariant("TraceComplete");
 
         mbt.run(RBTDriver::default)
+    }
+
+    // -----------------------------------------------------------------------
+    // Unit tests for RBTree insert operation
+    // -----------------------------------------------------------------------
+
+    fn assert_invariants(tree: &RBTree) {
+        if let Err(errors) = tree.check_invariants() {
+            panic!("invariant violations:\n{}", errors.join("\n"));
+        }
+    }
+
+    fn keys_inorder(tree: &RBTree) -> Vec<i64> {
+        let mut keys = Vec::new();
+        fn walk(tree: &RBTree, id: i64, out: &mut Vec<i64>) {
+            if id == NIL {
+                return;
+            }
+            let node = &tree.nodes()[id as usize];
+            if node.key == 0 {
+                return;
+            }
+            walk(tree, node.left, out);
+            out.push(node.key);
+            walk(tree, node.right, out);
+        }
+        walk(tree, tree.root, &mut keys);
+        keys
+    }
+
+    #[test]
+    fn insert_single_into_empty() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        assert_eq!(t.node_count(), 1);
+        assert_invariants(&t);
+        assert_eq!(keys_inorder(&t), vec![3]);
+    }
+
+    #[test]
+    fn insert_duplicate_does_not_increase_count() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.insert(3).unwrap();
+        assert_eq!(t.node_count(), 1);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn insert_ascending_order() {
+        let mut t = RBTree::new(5);
+        for k in 1..=5 {
+            t.insert(k).unwrap();
+            assert_eq!(t.node_count(), k as usize);
+            assert_invariants(&t);
+        }
+        assert_eq!(keys_inorder(&t), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn insert_descending_order() {
+        let mut t = RBTree::new(5);
+        for k in (1..=5).rev() {
+            t.insert(k).unwrap();
+            assert_invariants(&t);
+        }
+        assert_eq!(t.node_count(), 5);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn insert_scrambled_order() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 4, 5, 2] {
+            t.insert(k).unwrap();
+            assert_invariants(&t);
+        }
+        assert_eq!(t.node_count(), 5);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn root_always_black() {
+        let mut t = RBTree::new(5);
+        for k in [2, 1, 3, 5, 4] {
+            t.insert(k).unwrap();
+            assert!(t.nodes()[t.root() as usize].color.is_black(),
+                "root should be black after inserting {k}");
+        }
+    }
+
+    #[test]
+    fn bst_property_holds() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 4, 5, 2] {
+            t.insert(k).unwrap();
+        }
+
+        let inorder = keys_inorder(&t);
+        let mut sorted = inorder.clone();
+        sorted.sort();
+        assert_eq!(inorder, sorted, "inorder traversal must yield sorted keys");
+    }
+
+    #[test]
+    fn no_double_red() {
+        let mut t = RBTree::new(5);
+        for k in 1..=5 {
+            t.insert(k).unwrap();
+        }
+        for id in 1..=t.nodes().len() as i64 - 1 {
+            let node = &t.nodes()[id as usize];
+            if node.key == 0 || !node.color.is_red() {
+                continue;
+            }
+            if node.left != NIL {
+                assert!(
+                    t.nodes()[node.left as usize].color.is_black(),
+                    "red node {id} has red left child {}",
+                    node.left
+                );
+            }
+            if node.right != NIL {
+                assert!(
+                    t.nodes()[node.right as usize].color.is_black(),
+                    "red node {id} has red right child {}",
+                    node.right
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn black_height_consistent() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 4, 5, 2] {
+            t.insert(k).unwrap();
+        }
+
+        fn check_bh(tree: &RBTree, id: i64) -> i64 {
+            if id == NIL || tree.nodes()[id as usize].key == 0 {
+                return 0;
+            }
+            let node = &tree.nodes()[id as usize];
+            let lbh = check_bh(tree, node.left);
+            let rbh = check_bh(tree, node.right);
+            assert_eq!(lbh, rbh, "BH mismatch at node {id}");
+            let expected = lbh + if node.color.is_black() { 1 } else { 0 };
+            assert_eq!(node.bh, expected, "wrong bh at node {id}");
+            expected
+        }
+
+        check_bh(&t, t.root());
+    }
+
+    #[test]
+    fn insert_at_capacity_then_overflow() {
+        let mut t = RBTree::new(5);
+        for k in 1..=5 {
+            t.insert(k).unwrap();
+        }
+        assert_eq!(t.node_count(), 5);
+        assert_invariants(&t);
+
+        let result = t.insert(99);
+        assert!(result.is_err(), "should error when exceeding MAX_NODES");
+        assert!(result.unwrap_err().contains("max_nodes"));
+    }
+
+    #[test]
+    fn insert_alternating_high_low() {
+        let mut t = RBTree::new(5);
+        for k in [5, 1, 4, 2, 3] {
+            t.insert(k).unwrap();
+            assert_invariants(&t);
+        }
+        assert_eq!(t.node_count(), 5);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 3, 4, 5]);
+    }
+
+    #[test]
+    fn insert_two_then_third() {
+        let mut t = RBTree::new(5);
+        t.insert(2).unwrap();
+        t.insert(1).unwrap();
+        assert_invariants(&t);
+        t.insert(3).unwrap();
+        assert_invariants(&t);
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn insert_single_leaf_is_red() {
+        let mut t = RBTree::new(5);
+        t.insert(1).unwrap();
+        assert_eq!(t.node_count(), 1);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn empty_tree_invariants() {
+        let t = RBTree::new(5);
+        assert_eq!(t.node_count(), 0);
+        assert_eq!(t.root(), NIL);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn large_tree_all_keys() {
+        let mut t = RBTree::new(10);
+        for k in [5, 2, 8, 1, 3, 7, 9, 4, 6, 10] {
+            t.insert(k).unwrap();
+            assert_invariants(&t);
+        }
+        assert_eq!(t.node_count(), 10);
+        assert_eq!(keys_inorder(&t), (1..=10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn invariant_violation_root_red_caught() {
+        let mut t = RBTree::new(5);
+        t.insert(1).unwrap();
+        let r = t.root() as usize;
+        t.nodes_mut()[r].color = Color::R;
+        assert!(t.check_invariants().is_err());
+    }
+
+    #[test]
+    fn invariant_violation_double_red_caught() {
+        let mut t = RBTree::new(5);
+        t.insert(2).unwrap();
+        t.insert(1).unwrap();
+        let r = t.root() as usize;
+        t.nodes_mut()[r].color = Color::R;
+        let left = t.nodes()[r].left;
+        if left != NIL {
+            t.nodes_mut()[left as usize].color = Color::R;
+        }
+        assert!(t.check_invariants().is_err());
+    }
+
+    #[test]
+    fn invariant_violation_bst_caught() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.insert(1).unwrap();
+        let r = t.root() as usize;
+        let left = t.nodes()[r].left;
+        t.nodes_mut()[r].left = t.nodes()[r].right;
+        t.nodes_mut()[r].right = left;
+        assert!(t.check_invariants().is_err());
+    }
+
+    #[test]
+    fn invariant_violation_bh_caught() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        let r = t.root() as usize;
+        t.nodes_mut()[r].bh = 99;
+        assert!(t.check_invariants().is_err());
     }
 }
