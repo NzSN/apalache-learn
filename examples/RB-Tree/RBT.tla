@@ -207,7 +207,7 @@ DeleteFixIt(n, r, x, px, xLeft) ==
     LET par == IF px /= nil THEN px ELSE Pof(n, r, x)
         isLeft == IF px /= nil THEN xLeft ELSE (par /= nil /\ n[par].left = x)
     IN IF x = r \/ (x /= nil /\ n[x].color = "R")
-       THEN [n |-> n, r |-> r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+       THEN [n |-> [n EXCEPT ![x].color = "B"], r |-> r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
        ELSE IF par = nil
             THEN [n |-> n, r |-> r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
             ELSE LET w == IF isLeft THEN n[par].right ELSE n[par].left
@@ -334,15 +334,16 @@ Delete(key) ==
                      ELSE IF yIsLeft
                           THEN [n0 EXCEPT ![yOldParent].left = x]
                           ELSE [n0 EXCEPT ![yOldParent].right = x]
+               n1clean == [n1 EXCEPT ![y].key = 0]
                r1 == IF y = root THEN x ELSE root
                delFix == IF yColor = "B"
                          THEN LET fx == IF x = nil
-                                        THEN yOldParent
+                                        THEN nil
                                         ELSE x
                                       fxPx == IF x = nil THEN yOldParent ELSE nil
                                       fxLeft == yIsLeft
-                                  IN DeleteFixup(n1, r1, fx, fxPx, fxLeft)
-                         ELSE [n |-> n1, r |-> r1, done |-> TRUE]
+                                  IN DeleteFixup(n1clean, r1, fx, fxPx, fxLeft)
+                         ELSE [n |-> n1clean, r |-> r1, done |-> TRUE]
                n2 == [delFix.n EXCEPT ![delFix.r].color = "B"]
                finalNodes == RecomputeBH(n2)
            IN /\ nodes' = finalNodes
@@ -359,7 +360,7 @@ Next ==
     \/ \E key \in TreeKeys: Delete(key)
     \/ UNCHANGED <<nodes, root, action_taken, step_count>>
 
-\* Bounded model checking: stop after 3 insertions.
+\* Bounded model checking: stop after 6 steps.
 TraceComplete == step_count < 6
 
 ==========================================================
