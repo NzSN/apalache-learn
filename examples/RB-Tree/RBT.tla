@@ -343,7 +343,7 @@ Delete(key) ==
                                       fxPx == IF x = nil THEN yOldParent ELSE nil
                                       fxLeft == yIsLeft
                                   IN DeleteFixup(n1clean, r1, fx, fxPx, fxLeft)
-                         ELSE [n |-> n1clean, r |-> r1, done |-> TRUE]
+                         ELSE [n |-> n1clean, r |-> r1, x |-> nil, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
                n2 == [delFix.n EXCEPT ![delFix.r].color = "B"]
                finalNodes == RecomputeBH(n2)
            IN /\ nodes' = finalNodes
