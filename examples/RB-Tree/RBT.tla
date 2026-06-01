@@ -308,6 +308,47 @@ Insert(key) ==
               /\ root' = fRes.r
               /\ Inv'
               /\ action_taken' = "insert"
+               /\ step_count' = step_count + 1
+
+\* ---------------------------------------------------------------------------
+\* Deterministic Delete — standard RB-tree algorithm.
+\* ---------------------------------------------------------------------------
+Delete(key) ==
+    Delete::
+    /\ IF key \notin TreeKeys
+       THEN /\ UNCHANGED <<nodes, root, step_count>>
+            /\ action_taken' = "delete"
+       ELSE
+           LET z == BSTFind(nodes, root, key)
+               hasTwoChildren == nodes[z].left /= nil /\ nodes[z].right /= nil
+               y == IF hasTwoChildren THEN Successor(nodes, z) ELSE z
+               x == IF nodes[y].left /= nil THEN nodes[y].left ELSE nodes[y].right
+               n0 == IF hasTwoChildren
+                     THEN [nodes EXCEPT ![z].key = nodes[y].key]
+                     ELSE nodes
+               yOldParent == Pof(n0, root, y)
+               yIsLeft == yOldParent /= nil /\ n0[yOldParent].left = y
+               yColor == IF hasTwoChildren THEN nodes[y].color ELSE nodes[z].color
+               n1 == IF yOldParent = nil
+                     THEN n0
+                     ELSE IF yIsLeft
+                          THEN [n0 EXCEPT ![yOldParent].left = x]
+                          ELSE [n0 EXCEPT ![yOldParent].right = x]
+               r1 == IF y = root THEN x ELSE root
+               delFix == IF yColor = "B"
+                         THEN LET fx == IF x = nil
+                                        THEN yOldParent
+                                        ELSE x
+                                      fxPx == IF x = nil THEN yOldParent ELSE nil
+                                      fxLeft == yIsLeft
+                                  IN DeleteFixup(n1, r1, fx, fxPx, fxLeft)
+                         ELSE [n |-> n1, r |-> r1, done |-> TRUE]
+               n2 == [delFix.n EXCEPT ![delFix.r].color = "B"]
+               finalNodes == RecomputeBH(n2)
+           IN /\ nodes' = finalNodes
+              /\ root' = delFix.r
+              /\ Inv'
+              /\ action_taken' = "delete"
               /\ step_count' = step_count + 1
 
 \* ---------------------------------------------------------------------------
@@ -315,9 +356,10 @@ Insert(key) ==
 \* ---------------------------------------------------------------------------
 Next ==
     \/ \E key \in KEYS: Insert(key)
+    \/ \E key \in TreeKeys: Delete(key)
     \/ UNCHANGED <<nodes, root, action_taken, step_count>>
 
 \* Bounded model checking: stop after 3 insertions.
-TraceComplete == step_count < 3
+TraceComplete == step_count < 6
 
 ==========================================================
