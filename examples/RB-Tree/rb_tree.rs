@@ -1,0 +1,677 @@
+use std::fmt;
+
+const NIL: i64 = 0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Color {
+    R,
+    B,
+}
+
+impl fmt::Display for Color {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Color::R => write!(f, "R"),
+            Color::B => write!(f, "B"),
+        }
+    }
+}
+
+impl Color {
+    fn from_str(s: &str) -> Result<Self, String> {
+        match s {
+            "R" => Ok(Color::R),
+            "B" => Ok(Color::B),
+            other => Err(format!("invalid color: {other}")),
+        }
+    }
+
+    fn is_black(self) -> bool {
+        matches!(self, Color::B)
+    }
+
+    fn is_red(self) -> bool {
+        matches!(self, Color::R)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RBNode {
+    key: i64,
+    color: Color,
+    left: i64,
+    right: i64,
+    bh: i64,
+}
+
+impl RBNode {
+    fn nil() -> Self {
+        Self {
+            key: 0,
+            color: Color::B,
+            left: NIL,
+            right: NIL,
+            bh: 0,
+        }
+    }
+}
+
+pub struct RBTree {
+    nodes: Vec<RBNode>,
+    root: i64,
+    max_nodes: i64,
+}
+
+impl RBTree {
+    pub fn new(max_nodes: i64) -> Self {
+        let mut nodes = Vec::with_capacity((max_nodes + 1) as usize);
+        for _ in 0..=max_nodes {
+            nodes.push(RBNode::nil());
+        }
+        Self {
+            nodes,
+            root: NIL,
+            max_nodes,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        for i in 0..self.nodes.len() {
+            self.nodes[i] = RBNode::nil();
+        }
+        self.root = NIL;
+    }
+
+    pub fn set_state(
+        &mut self,
+        node_records: &[(i64, i64, String, i64, i64, i64)],
+        new_root: i64,
+    ) -> Result<(), String> {
+        self.reset();
+        let max_id = node_records
+            .iter()
+            .map(|(id, _, _, _, _, _)| *id)
+            .max()
+            .unwrap_or(0);
+        self.nodes.resize((max_id + 1) as usize, RBNode::nil());
+        for &(id, key, ref color_str, left, right, bh) in node_records {
+            let color = Color::from_str(color_str)?;
+            self.nodes[id as usize] = RBNode {
+                key,
+                color,
+                left,
+                right,
+                bh,
+            };
+        }
+        self.root = new_root;
+        Ok(())
+    }
+
+    pub fn insert(&mut self, key: i64) -> Result<(), String> {
+        if self.root == NIL {
+            let id = self.alloc_node()?;
+            self.nodes[id as usize] = RBNode {
+                key,
+                color: Color::B,
+                left: NIL,
+                right: NIL,
+                bh: 1,
+            };
+            self.root = id;
+            return Ok(());
+        }
+
+        if self.find_node(key).is_some() {
+            return Ok(());
+        }
+
+        let new_id = self.alloc_node()?;
+        self.nodes[new_id as usize] = RBNode {
+            key,
+            color: Color::R,
+            left: NIL,
+            right: NIL,
+            bh: 0,
+        };
+
+        let parent_id = self.bst_insert_parent(self.root, key)?;
+        if key < self.nodes[parent_id as usize].key {
+            self.nodes[parent_id as usize].left = new_id;
+        } else {
+            self.nodes[parent_id as usize].right = new_id;
+        }
+
+        self.fixup_after_insert(new_id)?;
+
+        self.nodes[self.root as usize].color = Color::B;
+        self.recompute_black_heights()?;
+        Ok(())
+    }
+
+    pub fn check_invariants(&self) -> Result<(), Vec<String>> {
+        let mut errors = Vec::new();
+
+        if self.nodes[NIL as usize] != RBNode::nil() {
+            errors.push("NilInv violated: NIL node is not NilRec".into());
+        }
+
+        if self.root != NIL && !self.nodes[self.root as usize].color.is_black() {
+            errors.push("RootBlack violated: root is not black".into());
+        }
+
+        for id in 1..self.nodes.len() as i64 {
+            let node = &self.nodes[id as usize];
+            if node.key == 0 {
+                continue;
+            }
+            if node.color.is_red() {
+                if node.left != NIL && self.nodes[node.left as usize].color.is_red() {
+                    errors.push(format!(
+                        "NoDoubleRed violated: node {id} (red) has red left child {}",
+                        node.left
+                    ));
+                }
+                if node.right != NIL && self.nodes[node.right as usize].color.is_red() {
+                    errors.push(format!(
+                        "NoDoubleRed violated: node {id} (red) has red right child {}",
+                        node.right
+                    ));
+                }
+            }
+
+            if node.left != NIL
+                && self.nodes[node.left as usize].key != 0
+                && self.nodes[node.left as usize].key >= node.key
+            {
+                errors.push(format!(
+                    "BSTInv violated: node {id} (key={}) has left child {} (key={})",
+                    node.key,
+                    node.left,
+                    self.nodes[node.left as usize].key
+                ));
+            }
+            if node.right != NIL
+                && self.nodes[node.right as usize].key != 0
+                && self.nodes[node.right as usize].key <= node.key
+            {
+                errors.push(format!(
+                    "BSTInv violated: node {id} (key={}) has right child {} (key={})",
+                    node.key,
+                    node.right,
+                    self.nodes[node.right as usize].key
+                ));
+            }
+        }
+
+        for id in 1..self.nodes.len() as i64 {
+            let node = &self.nodes[id as usize];
+            if node.key == 0 {
+                continue;
+            }
+            let lbh = self.nodes[node.left as usize].bh;
+            let rbh = self.nodes[node.right as usize].bh;
+            if lbh != rbh {
+                errors.push(format!(
+                    "BHInv violated: node {id} has left bh={lbh}, right bh={rbh}"
+                ));
+            }
+            let expected_bh = lbh + if node.color.is_black() { 1 } else { 0 };
+            if node.bh != expected_bh {
+                errors.push(format!(
+                    "BHInv violated: node {id} has bh={} but expected {expected_bh}",
+                    node.bh
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter(|(id, n)| *id as i64 != NIL && n.key != 0)
+            .count()
+    }
+
+    pub fn root(&self) -> i64 {
+        self.root
+    }
+
+    pub fn nodes_sorted(&self) -> Vec<(i64, i64, String, i64, i64, i64)> {
+        let mut result = Vec::new();
+        for (id, node) in self.nodes.iter().enumerate() {
+            let id = id as i64;
+            result.push((
+                id,
+                node.key,
+                node.color.to_string(),
+                node.left,
+                node.right,
+                node.bh,
+            ));
+        }
+        result.sort_by_key(|(id, _, _, _, _, _)| *id);
+        result
+    }
+
+    fn alloc_node(&mut self) -> Result<i64, String> {
+        for id in 1..=self.max_nodes as usize {
+            if self.nodes[id].key == 0 {
+                return Ok(id as i64);
+            }
+        }
+        Err(format!("max_nodes ({}) exceeded", self.max_nodes))
+    }
+
+    fn find_node(&self, key: i64) -> Option<i64> {
+        let mut cur = self.root;
+        while cur != NIL {
+            let node_key = self.nodes[cur as usize].key;
+            if node_key == 0 {
+                return None;
+            }
+            match key.cmp(&node_key) {
+                std::cmp::Ordering::Equal => return Some(cur),
+                std::cmp::Ordering::Less => cur = self.nodes[cur as usize].left,
+                std::cmp::Ordering::Greater => cur = self.nodes[cur as usize].right,
+            }
+        }
+        None
+    }
+
+    fn bst_insert_parent(&self, root: i64, key: i64) -> Result<i64, String> {
+        let mut cur = root;
+        let mut parent = NIL;
+        while cur != NIL {
+            parent = cur;
+            let node_key = self.nodes[cur as usize].key;
+            if node_key == 0 {
+                return Err("encountered nil node during BST insert".into());
+            }
+            if key < node_key {
+                cur = self.nodes[cur as usize].left;
+            } else {
+                cur = self.nodes[cur as usize].right;
+            }
+        }
+        if parent == NIL {
+            return Err("BST insert failed to find parent".into());
+        }
+        Ok(parent)
+    }
+
+    fn fixup_after_insert(&mut self, mut z: i64) -> Result<(), String> {
+        loop {
+            let parent = self.parent_of(z)?;
+            if parent == NIL || self.nodes[parent as usize].color.is_black() {
+                break;
+            }
+            let grandparent = self.parent_of(parent)?;
+            if grandparent == NIL {
+                break;
+            }
+
+            let parent_is_left = self.nodes[grandparent as usize].left == parent;
+            let uncle = if parent_is_left {
+                self.nodes[grandparent as usize].right
+            } else {
+                self.nodes[grandparent as usize].left
+            };
+
+            let uncle_is_red = uncle != NIL && self.nodes[uncle as usize].color.is_red();
+
+            if uncle_is_red {
+                self.nodes[parent as usize].color = Color::B;
+                self.nodes[uncle as usize].color = Color::B;
+                self.nodes[grandparent as usize].color = Color::R;
+                z = grandparent;
+            } else if parent_is_left {
+                if z == self.nodes[parent as usize].right {
+                    self.rotate_left(parent);
+                    z = parent;
+                }
+                let p = self.parent_of(z)?;
+                let gp = self.parent_of(p)?;
+                if gp != NIL {
+                    let p_idx = p;
+                    let gp_idx = gp;
+                    self.nodes[p_idx as usize].color = Color::B;
+                    self.nodes[gp_idx as usize].color = Color::R;
+                    self.rotate_right(gp_idx);
+                }
+            } else {
+                if z == self.nodes[parent as usize].left {
+                    self.rotate_right(parent);
+                    z = parent;
+                }
+                let p = self.parent_of(z)?;
+                let gp = self.parent_of(p)?;
+                if gp != NIL {
+                    let p_idx = p;
+                    let gp_idx = gp;
+                    self.nodes[p_idx as usize].color = Color::B;
+                    self.nodes[gp_idx as usize].color = Color::R;
+                    self.rotate_left(gp_idx);
+                }
+            }
+        }
+        self.nodes[self.root as usize].color = Color::B;
+        Ok(())
+    }
+
+    fn parent_of(&self, id: i64) -> Result<i64, String> {
+        if id == self.root {
+            return Ok(NIL);
+        }
+        let key = self.nodes[id as usize].key;
+        let mut cur = self.root;
+        let mut parent = NIL;
+        while cur != NIL {
+            if cur == id {
+                return Ok(parent);
+            }
+            parent = cur;
+            let node_key = self.nodes[cur as usize].key;
+            if node_key == 0 {
+                return Err(format!("node {id} not found in tree"));
+            }
+            if key < node_key {
+                cur = self.nodes[cur as usize].left;
+            } else {
+                cur = self.nodes[cur as usize].right;
+            }
+        }
+        Err(format!("node {id} not found in tree"))
+    }
+
+    fn rotate_left(&mut self, x: i64) {
+        let y = self.nodes[x as usize].right;
+        if y == NIL {
+            return;
+        }
+        self.nodes[x as usize].right = self.nodes[y as usize].left;
+        if self.nodes[y as usize].left != NIL {
+            // left child's parent implicitly updated through tree structure
+        }
+        let p = if x == self.root {
+            NIL
+        } else {
+            self.find_parent_id(x)
+        };
+        self.nodes[y as usize].left = x;
+        if p == NIL {
+            self.root = y;
+        } else if self.nodes[p as usize].left == x {
+            self.nodes[p as usize].left = y;
+        } else {
+            self.nodes[p as usize].right = y;
+        }
+    }
+
+    fn rotate_right(&mut self, x: i64) {
+        let y = self.nodes[x as usize].left;
+        if y == NIL {
+            return;
+        }
+        self.nodes[x as usize].left = self.nodes[y as usize].right;
+        let p = if x == self.root {
+            NIL
+        } else {
+            self.find_parent_id(x)
+        };
+        self.nodes[y as usize].right = x;
+        if p == NIL {
+            self.root = y;
+        } else if self.nodes[p as usize].left == x {
+            self.nodes[p as usize].left = y;
+        } else {
+            self.nodes[p as usize].right = y;
+        }
+    }
+
+    fn find_parent_id(&self, id: i64) -> i64 {
+        let key = self.nodes[id as usize].key;
+        let mut cur = self.root;
+        let mut parent = NIL;
+        while cur != NIL {
+            if cur == id {
+                return parent;
+            }
+            parent = cur;
+            let node_key = self.nodes[cur as usize].key;
+            if node_key == 0 {
+                return NIL;
+            }
+            if key < node_key {
+                cur = self.nodes[cur as usize].left;
+            } else {
+                cur = self.nodes[cur as usize].right;
+            }
+        }
+        NIL
+    }
+
+    fn recompute_black_heights(&mut self) -> Result<(), String> {
+        self.recompute_bh_rec(self.root)?;
+        Ok(())
+    }
+
+    fn recompute_bh_rec(&mut self, id: i64) -> Result<i64, String> {
+        if id == NIL {
+            return Ok(0);
+        }
+        if self.nodes[id as usize].key == 0 {
+            return Ok(0);
+        }
+        let lbh = self.recompute_bh_rec(self.nodes[id as usize].left)?;
+        let rbh = self.recompute_bh_rec(self.nodes[id as usize].right)?;
+        if lbh != rbh {
+            return Err(format!("BH mismatch at node {id}: left={lbh}, right={rbh}"));
+        }
+        let add = if self.nodes[id as usize].color.is_black() {
+            1
+        } else {
+            0
+        };
+        self.nodes[id as usize].bh = lbh + add;
+        Ok(lbh + add)
+    }
+}
+
+#[cfg(not(test))]
+fn main() {
+    eprintln!("Run MBT verification via: cargo test --example rb_tree");
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+    use tla_connect as T;
+
+    use super::RBTree;
+    use apalache_learn::model_check::ApalacheMBT;
+
+    #[derive(Debug, PartialEq, Eq, Deserialize)]
+    struct RBTState {
+        keys: Vec<i64>,
+    }
+
+    impl T::State for RBTState {
+        fn from_spec(value: &itf::Value) -> Result<Self, T::DriverError> {
+            let rec = expect_record(value)?;
+            let node_records = extract_nodes(extract_field(rec, "nodes")?)?;
+            let mut keys: Vec<i64> = node_records
+                .iter()
+                .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
+                .map(|(_, key, _, _, _, _)| *key)
+                .collect();
+            keys.sort();
+            keys.dedup();
+            Ok(RBTState { keys })
+        }
+    }
+
+    impl T::ExtractState<RBTDriver> for RBTState {
+        fn from_driver(driver: &RBTDriver) -> Result<Self, T::DriverError> {
+            let mut keys: Vec<i64> = driver
+                .tree
+                .nodes_sorted()
+                .iter()
+                .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
+                .map(|(_, key, _, _, _, _)| *key)
+                .collect();
+            keys.sort();
+            keys.dedup();
+            Ok(RBTState { keys })
+        }
+    }
+
+    struct RBTDriver {
+        tree: RBTree,
+        prev_tree_keys: Vec<i64>,
+    }
+
+    impl Default for RBTDriver {
+        fn default() -> Self {
+            Self {
+                tree: RBTree::new(5),
+                prev_tree_keys: Vec::new(),
+            }
+        }
+    }
+
+    impl T::Driver for RBTDriver {
+        type State = RBTState;
+
+        fn step(&mut self, step: &T::Step) -> Result<(), T::DriverError> {
+            match step.action_taken.as_str() {
+                "init" => {
+                    self.tree = RBTree::new(5);
+                    self.prev_tree_keys.clear();
+                    Ok(())
+                }
+                "insert" | "Insert" => {
+                    let rec = expect_record(&step.state)?;
+                    let node_records = extract_nodes(extract_field(rec, "nodes")?)?;
+
+                    let mut cur_keys: Vec<i64> = node_records
+                        .iter()
+                        .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
+                        .map(|(_, key, _, _, _, _)| *key)
+                        .collect();
+                    cur_keys.sort();
+                    cur_keys.dedup();
+
+                    let new_keys: Vec<i64> = cur_keys
+                        .iter()
+                        .filter(|k| !self.prev_tree_keys.contains(k))
+                        .copied()
+                        .collect();
+
+                    for key in &new_keys {
+                        self.tree.insert(*key).map_err(|e| {
+                            T::DriverError::ActionFailed {
+                                action: step.action_taken.clone(),
+                                reason: e,
+                            }
+                        })?;
+                    }
+
+                    self.prev_tree_keys = cur_keys;
+
+                    Ok(())
+                }
+                other => Err(T::DriverError::UnknownAction(other.to_string())),
+            }
+        }
+    }
+
+    fn state_err(msg: impl Into<String>) -> T::DriverError {
+        T::DriverError::StateExtraction(msg.into())
+    }
+
+    fn expect_record(v: &itf::Value) -> Result<&itf::value::Record, T::DriverError> {
+        match v {
+            itf::Value::Record(r) => Ok(r),
+            other => Err(state_err(format!("expected Record, got {other:?}"))),
+        }
+    }
+
+    fn extract_field<'a>(
+        rec: &'a itf::value::Record,
+        field: &str,
+    ) -> Result<&'a itf::Value, T::DriverError> {
+        rec.get(field)
+            .ok_or_else(|| state_err(format!("missing field {field}")))
+    }
+
+    fn extract_int(rec: &itf::value::Record, field: &str) -> Result<i64, T::DriverError> {
+        let v = extract_field(rec, field)?;
+        match v {
+            itf::Value::BigInt(n) => n
+                .to_string()
+                .parse()
+                .map_err(|e| state_err(format!("{field}: {e}"))),
+            itf::Value::Number(n) => Ok(*n),
+            other => Err(state_err(format!("{field}: expected int, got {other:?}"))),
+        }
+    }
+
+    fn to_i64(v: &itf::Value) -> Result<i64, T::DriverError> {
+        match v {
+            itf::Value::BigInt(n) => n
+                .to_string()
+                .parse()
+                .map_err(|e| state_err(format!("BigInt: {e}"))),
+            itf::Value::Number(n) => Ok(*n),
+            other => Err(state_err(format!("expected int, got {other:?}"))),
+        }
+    }
+
+    fn extract_color(v: &itf::Value) -> Result<String, T::DriverError> {
+        match v {
+            itf::Value::String(s) => Ok(s.clone()),
+            other => Err(state_err(format!("expected String color, got {other:?}"))),
+        }
+    }
+
+    fn extract_nodes(
+        v: &itf::Value,
+    ) -> Result<Vec<(i64, i64, String, i64, i64, i64)>, T::DriverError> {
+        match v {
+            itf::Value::Map(map) => {
+                let mut result = Vec::new();
+                for (key, val) in map.iter() {
+                    let id = to_i64(key)?;
+                    let rec = expect_record(val)?;
+                    let node_key = extract_int(rec, "key")?;
+                    let color = extract_color(extract_field(rec, "color")?)?;
+                    let left = extract_int(rec, "left")?;
+                    let right = extract_int(rec, "right")?;
+                    let bh = extract_int(rec, "bh")?;
+                    result.push((id, node_key, color, left, right, bh));
+                }
+                result.sort_by_key(|(id, _, _, _, _, _)| *id);
+                Ok(result)
+            }
+            other => Err(state_err(format!("expected Map for nodes, got {other:?}"))),
+        }
+    }
+
+    #[test]
+    fn mbt_verify_interactive() -> Result<(), T::Error> {
+        let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
+            .max_traces(10)
+            .max_length(20)
+            .invariant("TraceComplete");
+
+        mbt.run(RBTDriver::default)
+    }
+}
