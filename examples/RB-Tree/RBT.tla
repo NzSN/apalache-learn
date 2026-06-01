@@ -92,7 +92,16 @@ BSTFind(n, r, key) ==
             ELSE LET c2 == IF key < n[c].key THEN n[c].left ELSE n[c].right
                  IN IF c2 = nil THEN nil
                     ELSE IF n[c2].key = key THEN c2
-                    ELSE nil
+                     ELSE nil
+
+\* In-order successor of id (min of right subtree). Bounded depth ≤ 3.
+\* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int) => Int;
+Successor(n, id) ==
+    LET r == n[id].right
+    IN IF r = nil THEN nil
+       ELSE IF n[r].left = nil THEN r
+       ELSE IF n[n[r].left].left = nil THEN n[r].left
+       ELSE n[n[r].left].left
 
 \* Rotate left at x. Returns [n |-> Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r |-> Int].
 \* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int, Int) => { n: Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r: Int };
