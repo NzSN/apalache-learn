@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tla-connect = { version = "0.0.4", features = ["rpc"] }
+tla-connect = { git = "https://github.com/NzSN/tla-connect-rs", features = ["rpc"] }
 serde = { version = "1", features = ["derive"] }
 itf = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
