@@ -218,7 +218,7 @@ DeleteFixIt(n, r, x, px, xLeft) ==
                              rot == IF isLeft
                                     THEN RotLeft(n1, r, par)
                                     ELSE RotRight(n1, r, par)
-                         IN [n |-> rot.n, r |-> rot.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> FALSE]
+                         IN [n |-> rot.n, r |-> rot.r, x |-> x, px |-> par, xLeft |-> isLeft, done |-> FALSE]
                     ELSE LET wL == n[w].left
                              wR == n[w].right
                              wLB == wL = nil \/ n[wL].color = "B"
