@@ -199,6 +199,80 @@ RecomputeBH(n) ==
                 ELSE [n2[id] EXCEPT !.bh = n2[n2[id].left].bh + (IF n2[id].color = "B" THEN 1 ELSE 0)]]
     IN n3
 
+\* Single delete-fixup iteration. (px, xLeft) are parent hints for the nil case;
+\* pass (nil, FALSE) when x is a real node (Pof is used instead).
+\* Returns { n, r, x, px, xLeft, done }.
+\* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int, Int, Int, Bool) => { n: Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r: Int, x: Int, px: Int, xLeft: Bool, done: Bool };
+DeleteFixIt(n, r, x, px, xLeft) ==
+    LET par == IF px /= nil THEN px ELSE Pof(n, r, x)
+        isLeft == IF px /= nil THEN xLeft ELSE (par /= nil /\ n[par].left = x)
+    IN IF x = r \/ (x /= nil /\ n[x].color = "R")
+       THEN [n |-> n, r |-> r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+       ELSE IF par = nil
+            THEN [n |-> n, r |-> r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+            ELSE LET w == IF isLeft THEN n[par].right ELSE n[par].left
+                     wRed == w /= nil /\ n[w].color = "R"
+                 IN IF wRed
+                    THEN LET n1 == [n EXCEPT ![w].color = "B",
+                                               ![par].color = "R"]
+                             rot == IF isLeft
+                                    THEN RotLeft(n1, r, par)
+                                    ELSE RotRight(n1, r, par)
+                         IN [n |-> rot.n, r |-> rot.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> FALSE]
+                    ELSE LET wL == n[w].left
+                             wR == n[w].right
+                             wLB == wL = nil \/ n[wL].color = "B"
+                             wRB == wR = nil \/ n[wR].color = "B"
+                         IN IF wLB /\ wRB
+                            THEN [n |-> [n EXCEPT ![w].color = "R"],
+                                   r |-> r, x |-> par, px |-> nil, xLeft |-> FALSE, done |-> FALSE]
+                            ELSE IF isLeft
+                                 THEN IF wR /= nil /\ n[wR].color = "R"
+                                      THEN LET n1 == [n EXCEPT ![w].color = n[par].color,
+                                                                 ![par].color = "B",
+                                                                 ![wR].color = "B"]
+                                               rot == RotLeft(n1, r, par)
+                                           IN [n |-> rot.n, r |-> rot.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+                                      ELSE LET nearC == wL
+                                               n1 == [n EXCEPT ![nearC].color = "B",
+                                                                  ![w].color = "R"]
+                                               rot1 == RotRight(n1, r, w)
+                                               w2 == rot1.n[par].right
+                                               w2R == rot1.n[w2].right
+                                               n2 == [rot1.n EXCEPT ![w2].color = rot1.n[par].color,
+                                                                       ![par].color = "B",
+                                                                       ![w2R].color = "B"]
+                                               rot2 == RotLeft(n2, rot1.r, par)
+                                           IN [n |-> rot2.n, r |-> rot2.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+                                 ELSE IF wL /= nil /\ n[wL].color = "R"
+                                      THEN LET n1 == [n EXCEPT ![w].color = n[par].color,
+                                                                 ![par].color = "B",
+                                                                 ![wL].color = "B"]
+                                               rot == RotRight(n1, r, par)
+                                           IN [n |-> rot.n, r |-> rot.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+                                      ELSE LET nearC == wR
+                                               n1 == [n EXCEPT ![nearC].color = "B",
+                                                                  ![w].color = "R"]
+                                               rot1 == RotLeft(n1, r, w)
+                                               w2 == rot1.n[par].left
+                                               w2L == rot1.n[w2].left
+                                               n2 == [rot1.n EXCEPT ![w2].color = rot1.n[par].color,
+                                                                       ![par].color = "B",
+                                                                       ![w2L].color = "B"]
+                                               rot2 == RotRight(n2, rot1.r, par)
+                                           IN [n |-> rot2.n, r |-> rot2.r, x |-> x, px |-> nil, xLeft |-> FALSE, done |-> TRUE]
+
+\* Bounded delete fixup: at most 5 iterations.
+\* (px, xLeft) are parent hints for nil — pass Pof result from before transplant.
+\* @type: (Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, Int, Int, Int, Bool) => { n: Int -> { key: Int, color: Str, left: Int, right: Int, bh: Int }, r: Int, x: Int, px: Int, xLeft: Bool, done: Bool };
+DeleteFixup(n, r, x, px, xLeft) ==
+    LET s1 == DeleteFixIt(n, r, x, px, xLeft)
+        s2 == IF ~s1.done THEN DeleteFixIt(s1.n, s1.r, s1.x, s1.px, s1.xLeft) ELSE s1
+        s3 == IF ~s2.done THEN DeleteFixIt(s2.n, s2.r, s2.x, s2.px, s2.xLeft) ELSE s2
+        s4 == IF ~s3.done THEN DeleteFixIt(s3.n, s3.r, s3.x, s3.px, s3.xLeft) ELSE s3
+        s5 == IF ~s4.done THEN DeleteFixIt(s4.n, s4.r, s4.x, s4.px, s4.xLeft) ELSE s4
+    IN s5
+
 \* ---------------------------------------------------------------------------
 \* Initial state: empty tree.
 \* ---------------------------------------------------------------------------
