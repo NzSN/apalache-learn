@@ -491,6 +491,225 @@ impl RBTree {
         self.nodes[id as usize].bh = lbh + add;
         Ok(lbh + add)
     }
+
+    fn successor(&self, id: i64) -> Option<i64> {
+        let right = self.nodes[id as usize].right;
+        if right == NIL {
+            return None;
+        }
+        let mut cur = right;
+        while self.nodes[cur as usize].left != NIL {
+            cur = self.nodes[cur as usize].left;
+        }
+        Some(cur)
+    }
+
+    fn transplant(&mut self, u: i64, v: i64) {
+        let p = if u == self.root {
+            self.root = v;
+            return;
+        } else {
+            self.find_parent_id(u)
+        };
+        if self.nodes[p as usize].left == u {
+            self.nodes[p as usize].left = v;
+        } else {
+            self.nodes[p as usize].right = v;
+        }
+    }
+
+    fn fixup_after_delete(
+        &mut self,
+        mut x: i64,
+        mut px: i64,
+        mut x_is_left: bool,
+    ) -> Result<(), String> {
+        loop {
+            if x != NIL && self.nodes[x as usize].color.is_red() {
+                self.nodes[x as usize].color = Color::B;
+                break;
+            }
+            if x == self.root {
+                break;
+            }
+
+            let par = if px != NIL {
+                px
+            } else {
+                self.parent_of(x)?
+            };
+            let is_left = if px != NIL {
+                x_is_left
+            } else {
+                par != NIL && self.nodes[par as usize].left == x
+            };
+            px = NIL;
+
+            if par == NIL {
+                break;
+            }
+
+            let w = if is_left {
+                self.nodes[par as usize].right
+            } else {
+                self.nodes[par as usize].left
+            };
+
+            if w != NIL && self.nodes[w as usize].color.is_red() {
+                self.nodes[w as usize].color = Color::B;
+                self.nodes[par as usize].color = Color::R;
+                if is_left {
+                    self.rotate_left(par);
+                } else {
+                    self.rotate_right(par);
+                }
+                px = par;
+                x_is_left = is_left;
+                continue;
+            }
+
+            let w_left = if w != NIL {
+                self.nodes[w as usize].left
+            } else {
+                NIL
+            };
+            let w_right = if w != NIL {
+                self.nodes[w as usize].right
+            } else {
+                NIL
+            };
+            let w_left_black = w_left == NIL || self.nodes[w_left as usize].color.is_black();
+            let w_right_black = w_right == NIL || self.nodes[w_right as usize].color.is_black();
+
+            if w_left_black && w_right_black {
+                if w != NIL {
+                    self.nodes[w as usize].color = Color::R;
+                }
+                x = par;
+                continue;
+            }
+
+            if is_left {
+                if w_right != NIL && self.nodes[w_right as usize].color.is_red() {
+                    self.nodes[w as usize].color = self.nodes[par as usize].color;
+                    self.nodes[par as usize].color = Color::B;
+                    self.nodes[w_right as usize].color = Color::B;
+                    self.rotate_left(par);
+                    break;
+                } else {
+                    if w_left != NIL {
+                        self.nodes[w_left as usize].color = Color::B;
+                    }
+                    if w != NIL {
+                        self.nodes[w as usize].color = Color::R;
+                    }
+                    self.rotate_right(w);
+                    let new_w = self.nodes[par as usize].right;
+                    let new_w_right = self.nodes[new_w as usize].right;
+                    self.nodes[new_w as usize].color = self.nodes[par as usize].color;
+                    self.nodes[par as usize].color = Color::B;
+                    if new_w_right != NIL {
+                        self.nodes[new_w_right as usize].color = Color::B;
+                    }
+                    self.rotate_left(par);
+                    break;
+                }
+            } else {
+                if w_left != NIL && self.nodes[w_left as usize].color.is_red() {
+                    self.nodes[w as usize].color = self.nodes[par as usize].color;
+                    self.nodes[par as usize].color = Color::B;
+                    self.nodes[w_left as usize].color = Color::B;
+                    self.rotate_right(par);
+                    break;
+                } else {
+                    if w_right != NIL {
+                        self.nodes[w_right as usize].color = Color::B;
+                    }
+                    if w != NIL {
+                        self.nodes[w as usize].color = Color::R;
+                    }
+                    self.rotate_left(w);
+                    let new_w = self.nodes[par as usize].left;
+                    let new_w_left = self.nodes[new_w as usize].left;
+                    self.nodes[new_w as usize].color = self.nodes[par as usize].color;
+                    self.nodes[par as usize].color = Color::B;
+                    if new_w_left != NIL {
+                        self.nodes[new_w_left as usize].color = Color::B;
+                    }
+                    self.rotate_right(par);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn delete(&mut self, key: i64) -> Result<(), String> {
+        if self.root == NIL {
+            return Ok(());
+        }
+
+        let z = match self.find_node(key) {
+            Some(id) => id,
+            None => return Ok(()),
+        };
+
+        let has_two_children =
+            self.nodes[z as usize].left != NIL && self.nodes[z as usize].right != NIL;
+
+        let y = if has_two_children {
+            match self.successor(z) {
+                Some(s) => s,
+                None => {
+                    return Err(format!("successor not found for node {z}"));
+                }
+            }
+        } else {
+            z
+        };
+
+        let x = if self.nodes[y as usize].left != NIL {
+            self.nodes[y as usize].left
+        } else {
+            self.nodes[y as usize].right
+        };
+
+        if has_two_children {
+            self.nodes[z as usize].key = self.nodes[y as usize].key;
+        }
+
+        let y_old_parent = if y == self.root {
+            NIL
+        } else {
+            self.find_parent_id(y)
+        };
+        let y_is_left =
+            y_old_parent != NIL && self.nodes[y_old_parent as usize].left == y;
+        let y_color = self.nodes[y as usize].color;
+
+        self.transplant(y, x);
+
+        self.nodes[y as usize].key = 0;
+
+        if y == self.root {
+            self.root = x;
+        }
+
+        if y_color.is_black() {
+            let (fx, fpx, f_is_left) = if x == NIL {
+                (NIL, y_old_parent, y_is_left)
+            } else {
+                (x, NIL, false)
+            };
+            self.fixup_after_delete(fx, fpx, f_is_left)?;
+        }
+
+        if self.root != NIL {
+            self.nodes[self.root as usize].color = Color::B;
+        }
+        self.recompute_black_heights()?;
+        Ok(())
+    }
 }
 
 #[cfg(not(test))]
@@ -585,6 +804,38 @@ mod tests {
 
                     Ok(())
                 }
+                "delete" | "Delete" => {
+                    let rec = expect_record(&step.state)?;
+                    let node_records = extract_nodes(extract_field(rec, "nodes")?)?;
+
+                    let mut cur_keys: Vec<i64> = node_records
+                        .iter()
+                        .filter(|(id, key, _, _, _, _)| *id != 0 && *key != 0)
+                        .map(|(_, key, _, _, _, _)| *key)
+                        .collect();
+                    cur_keys.sort();
+                    cur_keys.dedup();
+
+                    let removed_keys: Vec<i64> = self
+                        .prev_tree_keys
+                        .iter()
+                        .filter(|k| !cur_keys.contains(k))
+                        .copied()
+                        .collect();
+
+                    for key in &removed_keys {
+                        self.tree.delete(*key).map_err(|e| {
+                            T::DriverError::ActionFailed {
+                                action: step.action_taken.clone(),
+                                reason: e,
+                            }
+                        })?;
+                    }
+
+                    self.prev_tree_keys = cur_keys;
+
+                    Ok(())
+                }
                 other => Err(T::DriverError::UnknownAction(other.to_string())),
             }
         }
@@ -663,9 +914,9 @@ mod tests {
     }
 
     #[test]
-    fn mbt_verify_interactive() -> Result<(), T::Error> {
+    fn mbt_verify() -> Result<(), T::Error> {
         let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
-            .max_traces(1)
+            .max_traces(100)
             .max_length(20)
             .invariant("TraceComplete");
 
@@ -931,5 +1182,185 @@ mod tests {
         let r = t.root() as usize;
         t.nodes_mut()[r].bh = 99;
         assert!(t.check_invariants().is_err());
+    }
+
+    // -----------------------------------------------------------
+    // Unit tests for RBTree delete operation
+    // -----------------------------------------------------------
+
+    #[test]
+    fn delete_from_empty_tree() {
+        let mut t = RBTree::new(5);
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 0);
+        assert_eq!(t.root(), NIL);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_nonexistent_key() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        assert_eq!(t.node_count(), 1);
+        t.delete(99).unwrap();
+        assert_eq!(t.node_count(), 1);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_single_node() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 0);
+        assert_eq!(t.root(), NIL);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_leaf_red() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.insert(1).unwrap();
+        t.insert(5).unwrap();
+        assert_eq!(t.node_count(), 3);
+        t.delete(1).unwrap();
+        assert_eq!(t.node_count(), 2);
+        assert_eq!(keys_inorder(&t), vec![3, 5]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_leaf_black_sibling_red() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 5, 4] {
+            t.insert(k).unwrap();
+        }
+        assert_eq!(t.node_count(), 4);
+        t.delete(1).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![3, 4, 5]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_node_with_one_child() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 5, 2] {
+            t.insert(k).unwrap();
+        }
+        assert_eq!(t.node_count(), 4);
+        t.delete(1).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![2, 3, 5]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_node_with_two_children() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 5, 2, 4] {
+            t.insert(k).unwrap();
+        }
+        assert_eq!(t.node_count(), 5);
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 4);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 4, 5]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_root_with_two_children() {
+        let mut t = RBTree::new(5);
+        for k in [3, 1, 5, 2, 4] {
+            t.insert(k).unwrap();
+        }
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 4);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_multiple_states() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.insert(1).unwrap();
+        t.insert(5).unwrap();
+        t.insert(2).unwrap();
+        t.insert(4).unwrap();
+        assert_eq!(t.node_count(), 5);
+        assert_invariants(&t);
+
+        t.delete(2).unwrap();
+        assert_eq!(t.node_count(), 4);
+        assert_eq!(keys_inorder(&t), vec![1, 3, 4, 5]);
+        assert_invariants(&t);
+
+        t.delete(5).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![1, 3, 4]);
+        assert_invariants(&t);
+
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 2);
+        assert_eq!(keys_inorder(&t), vec![1, 4]);
+        assert_invariants(&t);
+
+        t.delete(1).unwrap();
+        assert_eq!(t.node_count(), 1);
+        assert_eq!(keys_inorder(&t), vec![4]);
+        assert_invariants(&t);
+
+        t.delete(4).unwrap();
+        assert_eq!(t.node_count(), 0);
+        assert_eq!(t.root(), NIL);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_then_insert_reuses_freed_id() {
+        let mut t = RBTree::new(5);
+        t.insert(3).unwrap();
+        t.insert(1).unwrap();
+        t.insert(5).unwrap();
+        t.delete(1).unwrap();
+        assert_eq!(t.node_count(), 2);
+        t.insert(2).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![2, 3, 5]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_black_sibling_with_two_black_children() {
+        let mut t = RBTree::new(5);
+        for k in [4, 2, 5, 1] {
+            t.insert(k).unwrap();
+        }
+        t.delete(5).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_eq!(keys_inorder(&t), vec![1, 2, 4]);
+        assert_invariants(&t);
+    }
+
+    #[test]
+    fn delete_from_linear_tree() {
+        let mut t = RBTree::new(5);
+        for k in 1..=5 {
+            t.insert(k).unwrap();
+        }
+        assert_invariants(&t);
+
+        t.delete(3).unwrap();
+        assert_eq!(t.node_count(), 4);
+        assert_invariants(&t);
+
+        t.delete(4).unwrap();
+        assert_eq!(t.node_count(), 3);
+        assert_invariants(&t);
+
+        t.delete(5).unwrap();
+        assert_eq!(t.node_count(), 2);
+        assert_invariants(&t);
     }
 }
