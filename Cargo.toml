@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tla-connect = { git = "https://github.com/NzSN/tla-connect-rs", features = ["rpc"] }
+tla-connect = { git = "https://github.com/NzSN/tla-connect-rs", features = ["rpc", "trace-validation"] }
 serde = { version = "1", features = ["derive"] }
 itf = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"
 
 [[example]]
 name = "hourclock"
