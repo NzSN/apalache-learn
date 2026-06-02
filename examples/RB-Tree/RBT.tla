@@ -53,6 +53,8 @@ BHInv ==
            /\ nodes[id].bh = nodes[l].bh + (IF nodes[id].color = "B" THEN 1 ELSE 0)
 Inv == NilInv /\ RootBlack /\ NoDoubleRed /\ BSTInv /\ BHInv
 
+TreeView == <<nodes, root>>
+
 \* ---------------------------------------------------------------------------
 \* Deterministic RB-tree helpers (module-level for type annotation support).
 \* NRec = { key: Int, color: Str, left: Int, right: Int, bh: Int }

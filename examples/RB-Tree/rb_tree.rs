@@ -337,7 +337,6 @@ impl RBTree {
 
             if uncle_is_red {
                 self.nodes[parent as usize].color = Color::B;
-                self.nodes[uncle as usize].color = Color::B;
                 self.nodes[grandparent as usize].color = Color::R;
                 z = grandparent;
             } else if parent_is_left {
@@ -590,7 +589,7 @@ impl RBTree {
             }
 
             if is_left {
-                if w_right != NIL && self.nodes[w_right as usize].color.is_red() {
+                if w_left != NIL && self.nodes[w_left as usize].color.is_red() {
                     self.nodes[w as usize].color = self.nodes[par as usize].color;
                     self.nodes[par as usize].color = Color::B;
                     self.nodes[w_right as usize].color = Color::B;
@@ -615,7 +614,7 @@ impl RBTree {
                     break;
                 }
             } else {
-                if w_left != NIL && self.nodes[w_left as usize].color.is_red() {
+                if w_right != NIL && self.nodes[w_right as usize].color.is_red() {
                     self.nodes[w as usize].color = self.nodes[par as usize].color;
                     self.nodes[par as usize].color = Color::B;
                     self.nodes[w_left as usize].color = Color::B;
@@ -918,7 +917,9 @@ mod tests {
         let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
             .max_traces(100)
             .max_length(20)
-            .invariant("TraceComplete");
+            .invariant("TraceComplete")
+            .mode(T::ApalacheMode::Check)
+            .view("TreeView");
 
         mbt.run(RBTDriver::default)
     }

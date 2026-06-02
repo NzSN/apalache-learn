@@ -8,6 +8,7 @@ pub struct ApalacheMBT {
     invariant: String,
     mode: T::ApalacheMode,
     cinit: Option<String>,
+    view: Option<String>,
 }
 
 impl ApalacheMBT {
@@ -19,6 +20,7 @@ impl ApalacheMBT {
             invariant: "TraceComplete".into(),
             mode: T::ApalacheMode::Simulate,
             cinit: None,
+            view: None,
         }
     }
 
@@ -44,6 +46,11 @@ impl ApalacheMBT {
 
     pub fn cinit(mut self, cinit: impl Into<String>) -> Self {
         self.cinit = Some(cinit.into());
+        self
+    }
+
+    pub fn view(mut self, view: impl Into<String>) -> Self {
+        self.view = Some(view.into());
         self
     }
 
@@ -75,6 +82,10 @@ impl ApalacheMBT {
 
         if let Some(ref cinit) = self.cinit {
             builder = builder.cinit(cinit);
+        }
+
+        if let Some(ref view) = self.view {
+            builder = builder.view(view);
         }
 
         builder.build().expect("T::ApalacheConfig build should always succeed")
