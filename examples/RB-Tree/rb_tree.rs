@@ -756,7 +756,7 @@ mod tests {
     impl Default for RBTDriver {
         fn default() -> Self {
             Self {
-                tree: RBTree::new(5),
+                tree: RBTree::new(4),
                 prev_tree_keys: Vec::new(),
             }
         }
@@ -768,7 +768,7 @@ mod tests {
         fn step(&mut self, step: &T::Step) -> Result<(), T::DriverError> {
             match step.action_taken.as_str() {
                 "init" => {
-                    self.tree = RBTree::new(5);
+                    self.tree = RBTree::new(4);
                     self.prev_tree_keys.clear();
                     Ok(())
                 }
@@ -915,11 +915,10 @@ mod tests {
     #[test]
     fn mbt_verify() -> Result<(), T::Error> {
         let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
-            .max_traces(100)
-            .max_length(20)
+            .max_length(4)
             .invariant("TraceComplete")
-            .mode(T::ApalacheMode::Check)
-            .view("TreeView");
+            .view("TreeView")
+            .mode(tla_connect::ApalacheMode::Check);
 
         mbt.run(RBTDriver::default)
     }

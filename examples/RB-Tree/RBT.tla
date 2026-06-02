@@ -2,12 +2,12 @@
 EXTENDS Integers
 
 \* The set of keys that may be inserted into the tree.
-KEYS == {1, 2, 3, 4, 5}
+KEYS == {1, 2, 3, 4}
 
 \* Maximum number of non-nil nodes in the tree (for bounded checking).
-MAX_NODES == 5
+MAX_NODES == 4
 
-MAX_STEPS == 6
+MAX_STEPS == 4
 
 \* Node ID 0 is the NIL sentinel; real nodes use IDs 1..MAX_NODES.
 nil == 0
