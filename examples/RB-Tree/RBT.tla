@@ -7,6 +7,8 @@ KEYS == {1, 2, 3, 4, 5}
 \* Maximum number of non-nil nodes in the tree (for bounded checking).
 MAX_NODES == 5
 
+MAX_STEPS == 6
+
 \* Node ID 0 is the NIL sentinel; real nodes use IDs 1..MAX_NODES.
 nil == 0
 NodeSet == {nil} \union (1..MAX_NODES)
@@ -307,8 +309,8 @@ Insert(key) ==
            IN /\ nodes' = finalNodes
               /\ root' = fRes.r
               /\ Inv'
-              /\ action_taken' = "insert"
-               /\ step_count' = step_count + 1
+               /\ action_taken' = "insert"
+                /\ step_count' = step_count + 1
 
 \* ---------------------------------------------------------------------------
 \* Deterministic Delete — standard RB-tree algorithm.
@@ -349,18 +351,17 @@ Delete(key) ==
            IN /\ nodes' = finalNodes
               /\ root' = delFix.r
               /\ Inv'
-              /\ action_taken' = "delete"
-              /\ step_count' = step_count + 1
+               /\ action_taken' = "delete"
+                /\ step_count' = step_count + 1
 
 \* ---------------------------------------------------------------------------
 \* Next-state relation.
 \* ---------------------------------------------------------------------------
 Next ==
     \/ \E key \in KEYS: Insert(key)
-    \/ \E key \in TreeKeys: Delete(key)
+    \/ \E key \in KEYS: Delete(key)
     \/ UNCHANGED <<nodes, root, action_taken, step_count>>
 
-\* Bounded model checking: stop after 6 steps.
-TraceComplete == step_count < 6
-
+\* Bounded model checking: stop after MAX_STEPS steps.
+TraceComplete == step_count < MAX_STEPS
 ==========================================================
