@@ -717,13 +717,55 @@ fn main() {
     eprintln!("Run MBT verification via: cargo test --example rb_tree");
 }
 
+#[allow(dead_code)]
+const MAX_NODES: i64 = 4;
+
 #[cfg(test)]
 mod tests {
-    use serde::Deserialize;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use serde::{Deserialize, Serialize};
     use tla_connect as T;
 
-    use super::RBTree;
+    use super::{MAX_NODES, RBTree};
     use apalache_learn::model_check::ApalacheMBT;
+
+    #[derive(Serialize)]
+    struct RecordedNode {
+        key: i64,
+        color: String,
+        left: i64,
+        right: i64,
+        bh: i64,
+    }
+
+    #[derive(Serialize)]
+    struct RecordedState {
+        nodes: Vec<RecordedNode>,
+        root: i64,
+    }
+
+    impl RecordedState {
+        fn from_driver(driver: &RBTDriver) -> Self {
+            let sorted = driver.tree.nodes_sorted();
+            let mut nodes = Vec::with_capacity((MAX_NODES + 1) as usize);
+            for id in 0..=MAX_NODES {
+                let (_, key, ref color, left, right, bh) = sorted[id as usize];
+                nodes.push(RecordedNode {
+                    key,
+                    color: color.clone(),
+                    left,
+                    right,
+                    bh,
+                });
+            }
+            RecordedState {
+                nodes,
+                root: driver.tree.root(),
+            }
+        }
+    }
 
     #[derive(Debug, PartialEq, Eq, Deserialize)]
     struct RBTState {
@@ -756,15 +798,49 @@ mod tests {
         tree: RBTree,
         prev_tree_keys: Vec<i64>,
         step_errors: Vec<String>,
+        emitter: Option<T::StateEmitter>,
     }
 
-    impl Default for RBTDriver {
+    impl RBTDriver {
         fn default() -> Self {
             Self {
-                tree: RBTree::new(4),
+                tree: RBTree::new(MAX_NODES),
                 prev_tree_keys: Vec::new(),
                 step_errors: Vec::new(),
+                emitter: None,
             }
+        }
+
+        fn with_emitter(
+            emitter_pool: &Rc<RefCell<Option<T::StateEmitter>>>,
+        ) -> Self {
+            let emitter = emitter_pool.borrow_mut().take();
+            Self {
+                tree: RBTree::new(MAX_NODES),
+                prev_tree_keys: Vec::new(),
+                step_errors: Vec::new(),
+                emitter,
+            }
+        }
+
+        fn emit_state(&mut self, action: &str) -> Result<(), T::DriverError> {
+            if self.emitter.is_some() {
+                let state = RecordedState::from_driver(self);
+                if let Some(ref mut emitter) = self.emitter {
+                    emitter.emit(action, &state).map_err(|e| {
+                        T::DriverError::ActionFailed {
+                            action: action.to_string(),
+                            reason: e.to_string(),
+                        }
+                    })?;
+                }
+            }
+            Ok(())
+        }
+
+        #[allow(dead_code)]
+        fn finish(mut self) -> Option<usize> {
+            self.emitter.take().and_then(|e| e.finish().ok())
         }
     }
 
@@ -774,8 +850,9 @@ mod tests {
         fn step(&mut self, step: &T::Step) -> Result<(), T::DriverError> {
             match step.action_taken.as_str() {
                 "init" => {
-                    self.tree = RBTree::new(4);
+                    self.tree = RBTree::new(MAX_NODES);
                     self.prev_tree_keys.clear();
+                    self.emit_state("init")?;
                     Ok(())
                 }
                 "insert" | "Insert" => {
@@ -804,6 +881,8 @@ mod tests {
                     }
 
                     self.prev_tree_keys = cur_keys;
+
+                    self.emit_state("insert")?;
 
                     Ok(())
                 }
@@ -834,6 +913,8 @@ mod tests {
                     }
 
                     self.prev_tree_keys = cur_keys;
+
+                    self.emit_state("delete")?;
 
                     Ok(())
                 }
@@ -923,5 +1004,45 @@ mod tests {
             .mode(tla_connect::ApalacheMode::Check);
 
         mbt.run(RBTDriver::default)
+    }
+
+    #[test]
+    fn post_hoc_validate() -> Result<(), Box<dyn std::error::Error>> {
+        let tmp_dir = tempfile::tempdir()?;
+        let trace_path = tmp_dir.path().join("trace.ndjson");
+
+        let emitter = T::StateEmitter::new(&trace_path)?;
+        let emitter_pool = Rc::new(RefCell::new(Some(emitter)));
+
+        let mbt = ApalacheMBT::new("examples/RB-Tree/RBT.tla")
+            .max_length(4)
+            .max_traces(1)
+            .invariant("TraceComplete")
+            .view("TreeView")
+            .mode(tla_connect::ApalacheMode::Check);
+
+        {
+            let pool_ref = Rc::clone(&emitter_pool);
+            mbt.run(move || RBTDriver::with_emitter(&pool_ref))?;
+        }
+
+        drop(emitter_pool);
+
+        let config = T::TraceValidatorConfig::builder()
+            .trace_spec("examples/RB-Tree/RBT_Trace.tla")
+            .build()?;
+
+        let result = T::validate_trace(&config, &trace_path)?;
+
+        match result {
+            T::TraceResult::Valid => {
+                println!("Post-hoc validation: trace is valid");
+                Ok(())
+            }
+            T::TraceResult::Invalid { reason } => {
+                Err(format!("Post-hoc validation failed: {reason}").into())
+            }
+            _ => Err("Unexpected trace validation result".into()),
+        }
     }
 }
