@@ -337,6 +337,7 @@ impl RBTree {
 
             if uncle_is_red {
                 self.nodes[parent as usize].color = Color::B;
+                self.nodes[uncle as usize].color = Color::B;
                 self.nodes[grandparent as usize].color = Color::R;
                 z = grandparent;
             } else if parent_is_left {
@@ -589,7 +590,7 @@ impl RBTree {
             }
 
             if is_left {
-                if w_left != NIL && self.nodes[w_left as usize].color.is_red() {
+                if w_right != NIL && self.nodes[w_right as usize].color.is_red() {
                     self.nodes[w as usize].color = self.nodes[par as usize].color;
                     self.nodes[par as usize].color = Color::B;
                     self.nodes[w_right as usize].color = Color::B;
@@ -614,7 +615,7 @@ impl RBTree {
                     break;
                 }
             } else {
-                if w_right != NIL && self.nodes[w_right as usize].color.is_red() {
+                if w_left != NIL && self.nodes[w_left as usize].color.is_red() {
                     self.nodes[w as usize].color = self.nodes[par as usize].color;
                     self.nodes[par as usize].color = Color::B;
                     self.nodes[w_left as usize].color = Color::B;
@@ -721,13 +722,15 @@ mod tests {
     use serde::Deserialize;
     use tla_connect as T;
 
-    use super::{Color, NIL, RBTree};
+    use super::RBTree;
     use apalache_learn::model_check::ApalacheMBT;
 
     #[derive(Debug, PartialEq, Eq, Deserialize)]
     struct RBTState {
         nodes: Vec<(i64, i64, String, i64, i64, i64)>,
         root: i64,
+        #[serde(default)]
+        step_errors: Vec<String>,
     }
 
     impl T::State for RBTState {
@@ -735,7 +738,7 @@ mod tests {
             let rec = expect_record(value)?;
             let nodes = extract_nodes(extract_field(rec, "nodes")?)?;
             let root = extract_int(rec, "root")?;
-            Ok(RBTState { nodes, root })
+            Ok(RBTState { nodes, root, step_errors: Vec::new() })
         }
     }
 
@@ -744,6 +747,7 @@ mod tests {
             Ok(RBTState {
                 nodes: driver.tree.nodes_sorted(),
                 root: driver.tree.root(),
+                step_errors: driver.step_errors.clone(),
             })
         }
     }
@@ -751,6 +755,7 @@ mod tests {
     struct RBTDriver {
         tree: RBTree,
         prev_tree_keys: Vec<i64>,
+        step_errors: Vec<String>,
     }
 
     impl Default for RBTDriver {
@@ -758,6 +763,7 @@ mod tests {
             Self {
                 tree: RBTree::new(4),
                 prev_tree_keys: Vec::new(),
+                step_errors: Vec::new(),
             }
         }
     }
@@ -791,12 +797,10 @@ mod tests {
                         .collect();
 
                     for key in &new_keys {
-                        self.tree.insert(*key).map_err(|e| {
-                            T::DriverError::ActionFailed {
-                                action: step.action_taken.clone(),
-                                reason: e,
-                            }
-                        })?;
+                        if let Err(e) = self.tree.insert(*key) {
+                            self.step_errors
+                                .push(format!("insert({key}): {e}"));
+                        }
                     }
 
                     self.prev_tree_keys = cur_keys;
@@ -823,12 +827,10 @@ mod tests {
                         .collect();
 
                     for key in &removed_keys {
-                        self.tree.delete(*key).map_err(|e| {
-                            T::DriverError::ActionFailed {
-                                action: step.action_taken.clone(),
-                                reason: e,
-                            }
-                        })?;
+                        if let Err(e) = self.tree.delete(*key) {
+                            self.step_errors
+                                .push(format!("delete({key}): {e}"));
+                        }
                     }
 
                     self.prev_tree_keys = cur_keys;
